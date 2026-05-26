@@ -1,0 +1,256 @@
+# ============================================================================
+# SQA Framework — CI Quality Gates
+# ----------------------------------------------------------------------------
+# Runs on every Pull Request to `main` and every push to `main`.
+# Every gate below must pass before a PR can merge (per branch protection).
+# See docs/05-ci-cd-quality-gates.md for the rationale behind each gate.
+# ============================================================================
+
+name: CI Quality Gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel older runs of the same PR when a new commit is pushed.
+# Saves CI minutes and ensures we only care about the latest result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Restrict default permissions to read-only. Individual jobs request more if needed.
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # GATE 1 — Install dependencies (shared cache for all later jobs)
+  # ---------------------------------------------------------------------------
+  install:
+    name: 'Gate 1 — Install Dependencies'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+  # ---------------------------------------------------------------------------
+  # GATE 2 — Lint (ESLint)
+  # ---------------------------------------------------------------------------
+  lint:
+    name: 'Gate 2 — Lint'
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  # ---------------------------------------------------------------------------
+  # GATE 3 — Type Check (TypeScript)
+  # ---------------------------------------------------------------------------
+  typecheck:
+    name: 'Gate 3 — Type Check'
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript compiler
+        run: npm run typecheck
+
+  # ---------------------------------------------------------------------------
+  # GATE 4 — Unit Tests (Jest)
+  # ---------------------------------------------------------------------------
+  test-unit:
+    name: 'Gate 4 — Unit Tests'
+    needs: [lint, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit -- --coverage
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: coverage/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # GATE 5 — Integration Tests (Jest + Supertest)
+  # Runs with a real MongoDB service container for realistic API tests.
+  # ---------------------------------------------------------------------------
+  test-integration:
+    name: 'Gate 5 — Integration Tests'
+    needs: [lint, typecheck]
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })' --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MONGODB_URI: 'mongodb://localhost:27017/test'
+      NODE_ENV: 'test'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+  # ---------------------------------------------------------------------------
+  # GATE 6 — Build
+  # Verifies the project actually compiles and bundles.
+  # ---------------------------------------------------------------------------
+  build:
+    name: 'Gate 6 — Build'
+    needs: [test-unit, test-integration]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # GATE 7 — Security Scan (npm audit)
+  # Blocks on High or Critical vulnerabilities.
+  # ---------------------------------------------------------------------------
+  security:
+    name: 'Gate 7 — Security Scan'
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit (high and critical only)
+        run: npm audit --audit-level=high
+
+  # ---------------------------------------------------------------------------
+  # GATE 8 — Coverage Threshold
+  # Enforced per docs/03-testing-strategy.md (60% backend / 50% frontend).
+  # Jest config enforces thresholds; this gate just runs and reports.
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: 'Gate 8 — Coverage Threshold'
+    needs: test-unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Enforce coverage thresholds
+        run: npm run test:coverage
+
+  # ---------------------------------------------------------------------------
+  # FINAL GATE — all required jobs passed
+  # This single job is what branch protection requires. Easy to manage.
+  # ---------------------------------------------------------------------------
+  all-checks-passed:
+    name: 'All Quality Gates Passed'
+    needs:
+      - lint
+      - typecheck
+      - test-unit
+      - test-integration
+      - build
+      - security
+      - coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm success
+        run: echo "All quality gates passed. PR is ready for review."
