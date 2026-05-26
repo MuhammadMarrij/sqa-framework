@@ -1,0 +1,26 @@
+{
+    "name": "sqa-framework",
+    "version": "1.0.0",
+    "private": true,
+    "description": "SQA Framework — placeholder package.json for CI verification. Will be replaced when the actual MERN codebase is scaffolded.",
+    "scripts": {
+        "lint": "echo '✅ Lint placeholder — replace with real ESLint command when codebase exists' && exit 0",
+        "typecheck": "echo '✅ Typecheck placeholder — replace with: tsc --noEmit' && exit 0",
+        "test:unit": "echo '✅ Unit test placeholder — replace with real Jest command' && exit 0",
+        "test:integration": "echo '✅ Integration test placeholder — replace with real Jest + Supertest command' && exit 0",
+        "test:coverage": "echo '✅ Coverage placeholder — replace with: jest --coverage --coverageThreshold' && exit 0",
+        "build": "echo '✅ Build placeholder — replace with real build command (e.g., vite build, tsc)' && exit 0"
+    },
+    "keywords": [
+        "sqa",
+        "quality",
+        "framework",
+        "mern",
+        "typescript"
+    ],
+    "author": "Rao Maarij Hassan",
+    "license": "MIT",
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}

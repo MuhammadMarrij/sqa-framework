@@ -4,6 +4,12 @@
 # Runs on every Pull Request to `main` and every push to `main`.
 # Every gate below must pass before a PR can merge (per branch protection).
 # See docs/05-ci-cd-quality-gates.md for the rationale behind each gate.
+#
+# NOTE FOR DEVELOPERS:
+# - Some steps use `if: hashFiles(...)` guards so the workflow works BOTH
+#   with the current placeholder package.json AND with a real codebase later.
+# - When real tests and coverage exist, the coverage upload activates
+#   automatically — no workflow edit needed.
 # ============================================================================
 
 name: CI Quality Gates
@@ -20,7 +26,7 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Restrict default permissions to read-only. Individual jobs request more if needed.
+# Restrict default permissions to read-only.
 permissions:
   contents: read
 
@@ -29,7 +35,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # GATE 1 — Install dependencies (shared cache for all later jobs)
+  # GATE 1 — Install dependencies
   # ---------------------------------------------------------------------------
   install:
     name: 'Gate 1 — Install Dependencies'
@@ -95,6 +101,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # GATE 4 — Unit Tests (Jest)
+  # Coverage upload activates automatically when a coverage/ folder exists.
   # ---------------------------------------------------------------------------
   test-unit:
     name: 'Gate 4 — Unit Tests'
@@ -114,9 +121,20 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: npm run test:unit -- --coverage
+        run: npm run test:unit
+
+      - name: Check for coverage output
+        id: check_coverage
+        run: |
+          if [ -d "coverage" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  No coverage folder yet — skipping upload. Will activate once real tests generate coverage."
+          fi
 
       - name: Upload coverage artifact
+        if: steps.check_coverage.outputs.found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-unit
@@ -125,7 +143,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # GATE 5 — Integration Tests (Jest + Supertest)
-  # Runs with a real MongoDB service container for realistic API tests.
+  # MongoDB service container starts only when actual tests need it.
+  # For placeholder phase, it still starts (harmless) but tests just echo.
   # ---------------------------------------------------------------------------
   test-integration:
     name: 'Gate 5 — Integration Tests'
@@ -165,7 +184,6 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # GATE 6 — Build
-  # Verifies the project actually compiles and bundles.
   # ---------------------------------------------------------------------------
   build:
     name: 'Gate 6 — Build'
@@ -213,8 +231,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # GATE 8 — Coverage Threshold
-  # Enforced per docs/03-testing-strategy.md (60% backend / 50% frontend).
-  # Jest config enforces thresholds; this gate just runs and reports.
+  # Currently runs the placeholder. Real threshold enforcement happens
+  # automatically once Jest config defines coverageThreshold.
   # ---------------------------------------------------------------------------
   coverage:
     name: 'Gate 8 — Coverage Threshold'
@@ -237,8 +255,8 @@ jobs:
         run: npm run test:coverage
 
   # ---------------------------------------------------------------------------
-  # FINAL GATE — all required jobs passed
-  # This single job is what branch protection requires. Easy to manage.
+  # FINAL GATE — confirms all required jobs passed
+  # Branch protection points at THIS job — one rule covers everything.
   # ---------------------------------------------------------------------------
   all-checks-passed:
     name: 'All Quality Gates Passed'
@@ -253,4 +271,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Confirm success
-        run: echo "All quality gates passed. PR is ready for review."
+        run: echo "✅ All quality gates passed. PR is ready for review."
